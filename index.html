@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Face Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #F3F4F6;
+            color: #1F2937;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #D1D5DB;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #9CA3AF;
+        }
+
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #FFFFFF;
+            border: 2px solid #111827;
+            cursor: grab;
+            margin-top: -7px;
+            transition: transform 0.1s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        input[type=range]::-webkit-slider-thumb:active {
+            cursor: grabbing;
+            transform: scale(1.1);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #E5E7EB;
+            border-radius: 2px;
+        }
+        
+        /* Grid Background for Canvas Area */
+        .bg-grid {
+            background-color: #F9FAFB;
+            background-image: 
+                linear-gradient(45deg, #F3F4F6 25%, transparent 25%), 
+                linear-gradient(-45deg, #F3F4F6 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #F3F4F6 75%), 
+                linear-gradient(-45deg, transparent 75%, #F3F4F6 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+
+        .btn-tool {
+            @apply flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium transition-all duration-200;
+        }
+        .btn-primary {
+            @apply bg-gray-900 text-white hover:bg-black shadow-sm hover:shadow active:scale-95;
+        }
+        .btn-secondary {
+            @apply bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-gray-300 active:scale-95;
+        }
+        .btn-icon-square {
+            @apply w-8 h-8 flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors;
+        }
+
+        .panel-section {
+            @apply px-5 py-6 border-b border-gray-100 last:border-0;
+        }
+        .panel-title {
+            @apply text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-sm">
+    <div id="app" class="h-full flex flex-col">
+        <!-- Hidden Inputs -->
+        <input type="file" ref="fileInput" class="hidden" accept="image/*" @change="handleFileSelect">
+
+        <!-- Top Navigation -->
+        <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </div>
+                <div>
+                    <h1 class="font-semibold text-gray-900 leading-tight">三庭五眼研判系统</h1>
+                    <p class="text-[10px] text-gray-400 font-medium tracking-wide">科技赋能研判升级</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3" v-if="imageLoaded">
+                <button @click="triggerUpload" class="btn-secondary text-xs h-9 px-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    替换图片
+                </button>
+                <div class="w-px h-6 bg-gray-200 mx-1"></div>
+                <button @click="downloadImage" class="btn-primary text-xs h-9 px-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    导出结果
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 flex overflow-hidden relative">
+            
+            <!-- Center Canvas -->
+            <div class="flex-1 bg-grid relative flex items-center justify-center p-8 overflow-hidden" ref="canvasWrapper">
+                
+                <!-- Upload State -->
+                <div 
+                    v-if="!imageLoaded"
+                    class="group w-full max-w-lg h-96 border-2 border-dashed border-gray-300 hover:border-black rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all duration-300 bg-white/50 hover:bg-white"
+                    @click="triggerUpload"
+                    @dragover.prevent @drop.prevent="handleDrop"
+                >
+                    <div class="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-gray-400 group-hover:text-gray-900"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M12 12v9"></path><path d="m16 16-4-4-4 4"></path></svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-gray-900 mb-1">点击或拖拽上传图片</h3>
+                    <p class="text-gray-500 text-sm">支持 JPG, PNG, WebP 高清格式</p>
+                </div>
+
+                <!-- Canvas Wrapper -->
+                <div v-show="imageLoaded" class="relative shadow-2xl rounded-lg overflow-hidden ring-1 ring-black/5 bg-white transition-all duration-300" :style="{ width: canvasWidth + 'px', height: canvasHeight + 'px' }">
+                    <canvas ref="imageCanvas" :width="canvasWidth" :height="canvasHeight" class="absolute inset-0"></canvas>
+                    <canvas 
+                        ref="overlayCanvas" 
+                        :width="canvasWidth" 
+                        :height="canvasHeight"
+                        class="absolute inset-0 cursor-crosshair"
+                        @mousedown="handleMouseDown"
+                        @mousemove="handleMouseMove"
+                        @mouseup="handleMouseUp"
+                        @mouseleave="handleMouseUp"
+                    ></canvas>
+                    
+                    <!-- Loading Toast -->
+                    <div v-if="isProcessing" class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full py-2 px-4 flex items-center gap-3 z-30">
+                        <div class="loading-spinner"></div>
+                        <span class="text-xs font-medium text-gray-700">{{ statusMessage }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar -->
+            <div class="w-80 bg-white border-l border-gray-200 flex flex-col shrink-0 z-10 shadow-sm overflow-hidden">
+                <div class="flex-1 overflow-y-auto custom-scrollbar">
+                    
+                    <!-- Section: Face Liquify -->
+                    <div class="panel-section">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="panel-title mb-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                                五官定位
+                            </h3>
+                            <!-- History Controls -->
+                            <div class="flex bg-gray-100 rounded-md p-0.5" v-if="imageLoaded && landmarks.length > 0">
+                                <button class="w-7 h-6 flex items-center justify-center rounded text-gray-500 hover:bg-white hover:text-gray-900 hover:shadow-sm disabled:opacity-30 transition-all" @click="undo" :disabled="historyIndex <= 0" title="撤销">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+                                </button>
+                                <button class="w-7 h-6 flex items-center justify-center rounded text-gray-500 hover:bg-white hover:text-gray-900 hover:shadow-sm disabled:opacity-30 transition-all" @click="redo" :disabled="historyIndex >= history.length - 1" title="重做">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div :class="{ 'opacity-40 pointer-events-none grayscale': !imageLoaded }">
+                            <div v-if="landmarks.length === 0" class="text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                <p class="text-gray-500 text-xs mb-3">AI 自动识别面部关键点</p>
+                                <button @click="detectFaces" class="bg-gray-200 hover:bg-gray-300 text-gray-900 shadow-sm hover:shadow active:scale-95 flex items-center justify-center py-2.5 rounded-lg font-medium transition-all duration-200 text-xs w-auto px-6 mx-auto">
+                                    开始识别
+                                </button>
+                            </div>
+                            
+                            <div v-else class="space-y-3">
+                                <div class="bg-green-50 border border-green-100 rounded-lg p-3 flex items-start gap-3">
+                                    <div class="mt-0.5 w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"></div>
+                                    <div class="space-y-1">
+                                        <p class="text-green-800 font-medium text-xs">已识别 {{ landmarks.length }} 个人脸</p>
+                                        <p class="text-green-700/80 text-[10px] leading-relaxed">
+                                            • 拖动五官区域可整体调整 (液化)<br>
+                                            • 拖动单个点可精确微调
+                                        </p>
+                                    </div>
+                                </div>
+                                <button @click="landmarks = []; history = [];" class="text-[10px] text-gray-400 hover:text-red-500 transition-colors w-full text-center">清除识别结果</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section: Color Adjust -->
+                    <div class="panel-section">
+                        <div class="flex justify-between items-end mb-5">
+                            <h3 class="panel-title mb-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                                调色参数
+                            </h3>
+                            <button @click="resetFilters" class="text-[10px] text-gray-400 hover:text-gray-900 font-medium transition-colors" :class="{ 'invisible': !imageLoaded }">重置</button>
+                        </div>
+                        
+                        <div class="space-y-6" :class="{ 'opacity-40 pointer-events-none grayscale': !imageLoaded }">
+                            <div v-for="(label, key) in filterLabels" :key="key" class="group">
+                                <div class="flex justify-between mb-2">
+                                    <label class="text-xs font-medium text-gray-600 group-hover:text-gray-900 transition-colors">{{ label }}</label>
+                                    <span class="text-[10px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ filters[key] }}</span>
+                                </div>
+                                <div class="relative h-4 flex items-center">
+                                    <div class="absolute w-full h-1 bg-gray-200 rounded overflow-hidden">
+                                        <!-- Optional: progress bar effect -->
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        v-model.number="filters[key]" 
+                                        :min="filterConfig[key].min" 
+                                        :max="filterConfig[key].max"
+                                        class="relative z-10"
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                </div>
+                
+                <!-- Footer Info -->
+                <div class="p-4 border-t border-gray-100 bg-gray-50/50">
+                    <p class="text-[10px] text-gray-400 text-center">
+                        Image Editor v1.2 • Local Processing
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, watch, nextTick } = Vue;
+
+        createApp({
+            setup() {
+                // Core Refs
+                const imageLoaded = ref(false);
+                const isProcessing = ref(false);
+                const statusMessage = ref('');
+                const fileInput = ref(null);
+                
+                // Canvas Refs
+                const canvasWrapper = ref(null);
+                const imageCanvas = ref(null);
+                const overlayCanvas = ref(null);
+                const originalImage = new Image();
+                
+                // Layout
+                const canvasWidth = ref(800);
+                const canvasHeight = ref(600);
+
+                // Filters
+                const filters = ref({
+                    brightness: 100,
+                    exposure: 100,
+                    contrast: 100,
+                    saturate: 100,
+                    grayscale: 0
+                });
+
+                const filterLabels = {
+                    brightness: '亮度 Brightness',
+                    exposure: '曝光 Exposure',
+                    contrast: '对比度 Contrast',
+                    saturate: '饱和度 Saturation',
+                    grayscale: '黑白 Grayscale'
+                };
+
+                const filterConfig = {
+                    brightness: { min: 0, max: 200 },
+                    exposure: { min: 0, max: 200 },
+                    contrast: { min: 0, max: 200 },
+                    saturate: { min: 0, max: 200 },
+                    grayscale: { min: 0, max: 100 }
+                };
+
+                // Landmarks Data
+                const landmarks = ref([]); 
+                
+                // Interaction State
+                const activePoint = ref(null); 
+                const activeFeature = ref(null);
+                const isDragging = ref(false);
+                const dragMode = ref(null); 
+                const lastMousePos = ref({ x: 0, y: 0 }); 
+                const rotationCenter = ref(null);
+                const lastMouseAngle = ref(0);
+
+                // Feature Definitions
+                const featureGroups = {
+                    jaw: [0, 16], 
+                    leftEyebrow: [17, 21], 
+                    rightEyebrow: [22, 26], 
+                    noseBridge: [27, 30], 
+                    noseTip: [31, 35], 
+                    leftEye: [36, 41], 
+                    rightEye: [42, 47], 
+                    outerLip: [48, 59], 
+                    innerLip: [60, 67] 
+                };
+
+                // Helper
+                const getFeatureCenter = (points) => {
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    points.forEach(p => {
+                        minX = Math.min(minX, p.x);
+                        minY = Math.min(minY, p.y);
+                        maxX = Math.max(maxX, p.x);
+                        maxY = Math.max(maxY, p.y);
+                    });
+                    const centerX = (minX + maxX) / 2;
+                    const centerY = (minY + maxY) / 2;
+                    const radius = Math.max(maxX - minX, maxY - minY) / 1.5; 
+                    return { x: centerX, y: centerY, r: radius };
+                };
+
+                // History
+                const history = ref([]);
+                const historyIndex = ref(-1);
+
+                // Initialize
+                onMounted(async () => {
+                    statusMessage.value = 'Initializing AI...';
+                    isProcessing.value = true;
+                    try {
+                        const modelUrl = 'https://justadudewhohacks.github.io/face-api.js/models';
+                        await faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl);
+                        await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl);
+                    } catch (e) {
+                        console.error('Model error:', e);
+                        statusMessage.value = 'Model Load Failed';
+                        setTimeout(() => statusMessage.value = '', 2000);
+                    }
+                    isProcessing.value = false;
+                });
+
+                watch(filters, () => { if (imageLoaded.value) drawImage(); }, { deep: true });
+                watch(landmarks, () => { if (imageLoaded.value) drawOverlay(); }, { deep: true });
+
+                // History
+                const saveHistory = () => {
+                    if (historyIndex.value < history.value.length - 1) {
+                        history.value = history.value.slice(0, historyIndex.value + 1);
+                    }
+                    history.value.push(JSON.parse(JSON.stringify(landmarks.value)));
+                    historyIndex.value++;
+                    if (history.value.length > 20) {
+                        history.value.shift();
+                        historyIndex.value--;
+                    }
+                };
+
+                const undo = () => {
+                    if (historyIndex.value > 0) {
+                        historyIndex.value--;
+                        landmarks.value = JSON.parse(JSON.stringify(history.value[historyIndex.value]));
+                    }
+                };
+
+                const redo = () => {
+                    if (historyIndex.value < history.value.length - 1) {
+                        historyIndex.value++;
+                        landmarks.value = JSON.parse(JSON.stringify(history.value[historyIndex.value]));
+                    }
+                };
+
+                // Files
+                const handleFileSelect = (e) => {
+                    const file = e.target.files[0];
+                    if (file) processFile(file);
+                };
+                const handleDrop = (e) => {
+                    const file = e.dataTransfer.files[0];
+                    if (file && file.type.startsWith('image/')) processFile(file);
+                };
+                const triggerUpload = () => {
+                    if (fileInput.value) {
+                        fileInput.value.value = '';
+                        fileInput.value.click();
+                    }
+                };
+                const processFile = (file) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        originalImage.src = e.target.result;
+                        originalImage.onload = async () => {
+                            imageLoaded.value = true;
+                            filters.value = { brightness: 100, exposure: 100, contrast: 100, saturate: 100, grayscale: 0 };
+                            landmarks.value = [];
+                            history.value = [];
+                            historyIndex.value = -1;
+                            await nextTick();
+                            initCanvas();
+                            saveHistory();
+                        };
+                    };
+                    reader.readAsDataURL(file);
+                };
+
+                // Canvas
+                const initCanvas = () => {
+                    if (!canvasWrapper.value) return;
+                    const maxWidth = canvasWrapper.value.clientWidth;
+                    const maxHeight = canvasWrapper.value.clientHeight;
+                    const imgRatio = originalImage.width / originalImage.height;
+                    const containerRatio = maxWidth / maxHeight;
+                    if (imgRatio > containerRatio) {
+                        canvasWidth.value = maxWidth;
+                        canvasHeight.value = maxWidth / imgRatio;
+                    } else {
+                        canvasHeight.value = maxHeight;
+                        canvasWidth.value = maxHeight * imgRatio;
+                    }
+                    setTimeout(() => { drawImage(); drawOverlay(); }, 0);
+                };
+
+                const drawImage = () => {
+                    if (!imageCanvas.value) return;
+                    const ctx = imageCanvas.value.getContext('2d');
+                    const f = filters.value;
+                    const combinedBrightness = (f.brightness / 100) * (f.exposure / 100) * 100;
+                    ctx.filter = `brightness(${combinedBrightness}%) contrast(${f.contrast}%) saturate(${f.saturate}%) grayscale(${f.grayscale}%)`;
+                    ctx.drawImage(originalImage, 0, 0, canvasWidth.value, canvasHeight.value);
+                    ctx.filter = 'none';
+                };
+
+                const drawOverlay = () => {
+                    if (!overlayCanvas.value) return;
+                    const ctx = overlayCanvas.value.getContext('2d');
+                    ctx.clearRect(0, 0, canvasWidth.value, canvasHeight.value);
+
+                    landmarks.value.forEach((face, fIdx) => {
+                        // Draw Wireframe
+                        ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)'; // Emerald-500
+                        ctx.lineWidth = 1.5;
+                        
+                        Object.keys(featureGroups).forEach(groupName => {
+                            const [start, end] = featureGroups[groupName];
+                            const points = face.points.slice(start, end + 1);
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(points[0].x, points[0].y);
+                            for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+                            if (['leftEye', 'rightEye', 'outerLip', 'innerLip'].includes(groupName)) ctx.closePath();
+                            ctx.stroke();
+
+                            // Highlight Active Feature
+                            if (activeFeature.value && activeFeature.value.faceIndex === fIdx && activeFeature.value.featureName === groupName) {
+                                ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+                                ctx.fill();
+                                ctx.strokeStyle = '#fff';
+                                ctx.lineWidth = 2;
+                                ctx.stroke();
+
+                                // Draw Rotation Handle
+                                const [start, end] = featureGroups[groupName];
+                                const points = face.points.slice(start, end + 1);
+                                const center = getFeatureCenter(points);
+                                const handlePos = { x: center.x, y: center.y - center.r - 20 };
+
+                                ctx.beginPath();
+                                ctx.moveTo(center.x, center.y - center.r);
+                                ctx.lineTo(handlePos.x, handlePos.y);
+                                ctx.strokeStyle = '#10B981';
+                                ctx.lineWidth = 1.5;
+                                ctx.stroke();
+
+                                ctx.beginPath();
+                                ctx.arc(handlePos.x, handlePos.y, 5, 0, 2 * Math.PI);
+                                ctx.fillStyle = '#fff';
+                                ctx.fill();
+                                ctx.strokeStyle = '#10B981';
+                                ctx.stroke();
+
+                                // Draw Scale Handle
+                                const scaleHandlePos = { x: center.x, y: center.y + center.r + 20 };
+
+                                ctx.beginPath();
+                                ctx.moveTo(center.x, center.y + center.r);
+                                ctx.lineTo(scaleHandlePos.x, scaleHandlePos.y);
+                                ctx.strokeStyle = '#10B981';
+                                ctx.lineWidth = 1.5;
+                                ctx.stroke();
+
+                                ctx.beginPath();
+                                ctx.rect(scaleHandlePos.x - 4, scaleHandlePos.y - 4, 8, 8);
+                                ctx.fillStyle = '#fff';
+                                ctx.fill();
+                                ctx.strokeStyle = '#10B981';
+                                ctx.stroke();
+                            }
+                        });
+
+                        // Draw Points
+                        face.points.forEach((point, pIdx) => {
+                            // Only draw if active point or hovering heavily? 
+                            // Let's keep them visible but subtle
+                            ctx.beginPath();
+                            ctx.arc(point.x, point.y, 2, 0, 2 * Math.PI);
+                            ctx.fillStyle = '#10B981';
+                            ctx.fill();
+                            
+                            // Highlight Active Point
+                            if (activePoint.value && activePoint.value.faceIndex === fIdx && activePoint.value.pointIndex === pIdx) {
+                                ctx.beginPath();
+                                ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+                                ctx.fillStyle = '#fff';
+                                ctx.fill();
+                                ctx.lineWidth = 2;
+                                ctx.strokeStyle = '#000';
+                                ctx.stroke();
+                            }
+                        });
+                    });
+                };
+
+                // Interactions
+                const getMousePos = (e) => {
+                    const rect = overlayCanvas.value.getBoundingClientRect();
+                    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                };
+
+                const handleMouseDown = (e) => {
+                    const pos = getMousePos(e);
+                    lastMousePos.value = pos;
+                    
+                    // 0. Rotate Handle
+                    if (activeFeature.value) {
+                        const { faceIndex, featureName } = activeFeature.value;
+                        const face = landmarks.value[faceIndex];
+                        const [start, end] = featureGroups[featureName];
+                        const points = face.points.slice(start, end + 1);
+                        const center = getFeatureCenter(points);
+                        const handlePos = { x: center.x, y: center.y - center.r - 20 };
+                        
+                        const dist = Math.sqrt(Math.pow(pos.x - handlePos.x, 2) + Math.pow(pos.y - handlePos.y, 2));
+                        if (dist < 8) {
+                            dragMode.value = 'rotate';
+                            isDragging.value = true;
+                            rotationCenter.value = center;
+                            lastMouseAngle.value = Math.atan2(pos.y - center.y, pos.x - center.x);
+                            return;
+                        }
+
+                        // 0.5 Scale Handle
+                        const scaleHandlePos = { x: center.x, y: center.y + center.r + 20 };
+                        const distScale = Math.sqrt(Math.pow(pos.x - scaleHandlePos.x, 2) + Math.pow(pos.y - scaleHandlePos.y, 2));
+                        
+                        if (distScale < 8) {
+                            dragMode.value = 'scale';
+                            isDragging.value = true;
+                            rotationCenter.value = center;
+                            return;
+                        }
+                    }
+
+                    // 1. Point
+                    let clickedPoint = null, minDist = 8;
+                    landmarks.value.forEach((face, fIdx) => {
+                        face.points.forEach((point, pIdx) => {
+                            const dist = Math.sqrt(Math.pow(pos.x - point.x, 2) + Math.pow(pos.y - point.y, 2));
+                            if (dist < minDist) { clickedPoint = { faceIndex: fIdx, pointIndex: pIdx }; minDist = dist; }
+                        });
+                    });
+
+                    if (clickedPoint) {
+                        activePoint.value = clickedPoint;
+                        activeFeature.value = null;
+                        dragMode.value = 'point';
+                        isDragging.value = true;
+                        return;
+                    }
+
+                    // 2. Feature
+                    let clickedFeature = null;
+                    landmarks.value.forEach((face, fIdx) => {
+                        Object.keys(featureGroups).forEach(groupName => {
+                            const [start, end] = featureGroups[groupName];
+                            const points = face.points.slice(start, end + 1);
+                            const center = getFeatureCenter(points);
+                            const dist = Math.sqrt(Math.pow(pos.x - center.x, 2) + Math.pow(pos.y - center.y, 2));
+                            if (dist < center.r) clickedFeature = { faceIndex: fIdx, featureName: groupName };
+                        });
+                    });
+
+                    if (clickedFeature) {
+                        activeFeature.value = clickedFeature;
+                        activePoint.value = null;
+                        dragMode.value = 'feature';
+                        isDragging.value = true;
+                    }
+                };
+
+                const handleMouseMove = (e) => {
+                    const pos = getMousePos(e);
+                    
+                    if (isDragging.value) {
+                        const dx = pos.x - lastMousePos.value.x;
+                        const dy = pos.y - lastMousePos.value.y;
+                        lastMousePos.value = pos;
+
+                        if (dragMode.value === 'point' && activePoint.value) {
+                            const { faceIndex, pointIndex } = activePoint.value;
+                            landmarks.value[faceIndex].points[pointIndex].x += dx;
+                            landmarks.value[faceIndex].points[pointIndex].y += dy;
+                            overlayCanvas.value.style.cursor = 'grabbing';
+                        } else if (dragMode.value === 'feature' && activeFeature.value) {
+                            const { faceIndex, featureName } = activeFeature.value;
+                            const [start, end] = featureGroups[featureName];
+                            for (let i = start; i <= end; i++) {
+                                landmarks.value[faceIndex].points[i].x += dx;
+                                landmarks.value[faceIndex].points[i].y += dy;
+                            }
+                            overlayCanvas.value.style.cursor = 'move';
+                        } else if (dragMode.value === 'rotate' && activeFeature.value) {
+                            const { faceIndex, featureName } = activeFeature.value;
+                            const center = rotationCenter.value;
+                            const currentAngle = Math.atan2(pos.y - center.y, pos.x - center.x);
+                            const dAngle = currentAngle - lastMouseAngle.value;
+                            lastMouseAngle.value = currentAngle;
+
+                            const [start, end] = featureGroups[featureName];
+                            const points = landmarks.value[faceIndex].points;
+                            
+                            for (let i = start; i <= end; i++) {
+                                const p = points[i];
+                                const dx = p.x - center.x;
+                                const dy = p.y - center.y;
+                                const cos = Math.cos(dAngle);
+                                const sin = Math.sin(dAngle);
+                                p.x = center.x + dx * cos - dy * sin;
+                                p.y = center.y + dx * sin + dy * cos;
+                            }
+                            overlayCanvas.value.style.cursor = 'alias';
+                        } else if (dragMode.value === 'scale' && activeFeature.value) {
+                            const { faceIndex, featureName } = activeFeature.value;
+                            const center = rotationCenter.value;
+                            
+                            // Reconstruct previous position
+                            const prevX = pos.x - dx;
+                            const prevY = pos.y - dy;
+                            
+                            const lastDist = Math.sqrt(Math.pow(prevX - center.x, 2) + Math.pow(prevY - center.y, 2));
+                            const currentDist = Math.sqrt(Math.pow(pos.x - center.x, 2) + Math.pow(pos.y - center.y, 2));
+                            
+                            if (lastDist > 0) {
+                                const scale = currentDist / lastDist;
+                                const [start, end] = featureGroups[featureName];
+                                const points = landmarks.value[faceIndex].points;
+                                
+                                for (let i = start; i <= end; i++) {
+                                    const p = points[i];
+                                    p.x = center.x + (p.x - center.x) * scale;
+                                    p.y = center.y + (p.y - center.y) * scale;
+                                }
+                            }
+                            overlayCanvas.value.style.cursor = 'ns-resize';
+                        }
+                    } else {
+                        // Hover Logic
+                        let hoveringPoint = false;
+                        landmarks.value.forEach(face => {
+                            face.points.forEach(point => {
+                                const dist = Math.sqrt(Math.pow(pos.x - point.x, 2) + Math.pow(pos.y - point.y, 2));
+                                if (dist < 8) hoveringPoint = true;
+                            });
+                        });
+
+                        if (hoveringPoint) {
+                            overlayCanvas.value.style.cursor = 'grab';
+                            activeFeature.value = null;
+                        } else {
+                            let hoveringFeature = null;
+                            let isOverHandle = false;
+                            let isOverScaleHandle = false;
+
+                            landmarks.value.forEach((face, fIdx) => {
+                                Object.keys(featureGroups).forEach(groupName => {
+                                    const [start, end] = featureGroups[groupName];
+                                    const points = face.points.slice(start, end + 1);
+                                    const center = getFeatureCenter(points);
+                                    
+                                    // 1. Check Body
+                                    const distBody = Math.sqrt(Math.pow(pos.x - center.x, 2) + Math.pow(pos.y - center.y, 2));
+                                    
+                                    // 2. Check Rotate Handle & Connector
+                                    const handlePos = { x: center.x, y: center.y - center.r - 20 };
+                                    const distHandle = Math.sqrt(Math.pow(pos.x - handlePos.x, 2) + Math.pow(pos.y - handlePos.y, 2));
+                                    const isOnConnector = Math.abs(pos.x - center.x) < 10 && pos.y > handlePos.y && pos.y < center.y;
+
+                                    // 3. Check Scale Handle & Connector
+                                    const scaleHandlePos = { x: center.x, y: center.y + center.r + 20 };
+                                    const distScaleHandle = Math.sqrt(Math.pow(pos.x - scaleHandlePos.x, 2) + Math.pow(pos.y - scaleHandlePos.y, 2));
+                                    const isOnScaleConnector = Math.abs(pos.x - center.x) < 10 && pos.y < scaleHandlePos.y && pos.y > center.y;
+
+                                    if (distBody < center.r || distHandle < 15 || isOnConnector || distScaleHandle < 15 || isOnScaleConnector) { 
+                                        hoveringFeature = { faceIndex: fIdx, featureName: groupName };
+                                        if (distHandle < 10) isOverHandle = true;
+                                        if (distScaleHandle < 10) isOverScaleHandle = true;
+                                    }
+                                });
+                            });
+
+                            if (hoveringFeature) {
+                                if (isOverHandle) overlayCanvas.value.style.cursor = 'alias';
+                                else if (isOverScaleHandle) overlayCanvas.value.style.cursor = 'ns-resize';
+                                else overlayCanvas.value.style.cursor = 'move';
+                                activeFeature.value = hoveringFeature;
+                            } else {
+                                overlayCanvas.value.style.cursor = 'default';
+                                activeFeature.value = null;
+                            }
+                        }
+                    }
+                    drawOverlay();
+                };
+
+                const handleMouseUp = () => {
+                    if (isDragging.value) {
+                        isDragging.value = false;
+                        overlayCanvas.value.style.cursor = 'default';
+                        saveHistory();
+                    }
+                };
+
+                const detectFaces = async () => {
+                    statusMessage.value = 'Detecting...';
+                    isProcessing.value = true;
+                    try {
+                        const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+                        const detections = await faceapi.detectAllFaces(imageCanvas.value, options).withFaceLandmarks();
+                        if (detections.length === 0) {
+                            alert('No faces detected');
+                        } else {
+                            landmarks.value = detections.map(d => ({
+                                box: d.detection.box,
+                                points: d.landmarks.positions.map(p => ({ x: p.x, y: p.y }))
+                            }));
+                            saveHistory();
+                        }
+                    } catch (e) { console.error(e); alert('Error: ' + e.message); }
+                    isProcessing.value = false;
+                };
+
+                const resetFilters = () => filters.value = { brightness: 100, exposure: 100, contrast: 100, saturate: 100, grayscale: 0 };
+                
+                const downloadImage = () => {
+                    if (!imageCanvas.value) return;
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = canvasWidth.value;
+                    tempCanvas.height = canvasHeight.value;
+                    const ctx = tempCanvas.getContext('2d');
+                    ctx.drawImage(imageCanvas.value, 0, 0);
+                    if (overlayCanvas.value) ctx.drawImage(overlayCanvas.value, 0, 0);
+                    const link = document.createElement('a');
+                    link.download = 'edited_face.png';
+                    link.href = tempCanvas.toDataURL('image/png');
+                    link.click();
+                };
+
+                return {
+                    imageLoaded, isProcessing, statusMessage, fileInput, canvasWrapper, imageCanvas, overlayCanvas,
+                    canvasWidth, canvasHeight, filters, filterLabels, filterConfig, landmarks,
+                    history, historyIndex, undo, redo, handleFileSelect, handleDrop, triggerUpload,
+                    handleMouseDown, handleMouseMove, handleMouseUp, detectFaces, resetFilters, downloadImage
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
